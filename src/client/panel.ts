@@ -206,6 +206,9 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
   const [diffText, setDiffText] = useState('')
   const [message, setMessage] = useState('')
   const [newBranch, setNewBranch] = useState('')
+  const [newBranchBase, setNewBranchBase] = useState('')
+  const branchInput = useRef<unknown>(null)
+  const worktreeInput = useRef<unknown>(null)
   const [worktreeName, setWorktreeName] = useState('')
   const [worktreeBase, setWorktreeBase] = useState('')
   const [remote, setRemote] = useState('')
@@ -300,10 +303,64 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
     [report, sessionId],
   )
 
+  /**
+   * Primary actions stay clickable. A button that is merely \`disabled\` looks
+   * identical to a live one and answers a click with nothing — reported as
+   * "点不动". Instead the button explains what is missing, and focuses the
+   * field that would unblock it.
+   */
+  const primaryButton = (
+    label: string,
+    blocked: string | null,
+    onRun: () => void,
+    options: { style?: Record<string, unknown>; focus?: { current: unknown } } = {},
+  ): ReactNode => {
+    const style: Record<string, unknown> = { ...S.button, ...(options.style ?? {}) }
+    if (blocked !== null) style.color = TOKEN.dim
+    return createElement(
+      'button',
+      {
+        style,
+        title: blocked ?? label,
+        'aria-disabled': blocked === null ? undefined : 'true',
+        onClick: () => {
+          if (blocked !== null) {
+            setNotice({ kind: 'error', text: blocked })
+            const target = options.focus?.current as { focus?: () => void } | null | undefined
+            target?.focus?.()
+            return
+          }
+          onRun()
+        },
+      },
+      label,
+    )
+  }
+
   const files = useMemo(() => {
     if (status === null) return [] as string[]
     return [...status.staged, ...status.unstaged, ...status.untracked].map(entry => entry.path)
   }, [status])
+
+  const createBranch = (): void => {
+    const name = newBranch.trim()
+    if (name === '') {
+      setNotice({ kind: 'error', text: '请先输入新分支名' })
+      return
+    }
+    const base = newBranchBase
+    void run(`新建分支 ${name}`, async () => {
+      const created = await call<{ branch: string; base: string | null; upstream: string | null }>('branch-create', sessionId, {
+        repo: repoRef.current,
+        name,
+        base,
+      })
+      setNewBranch('')
+      setNewBranchBase('')
+      const from = created.base === null ? '当前 HEAD' : created.base
+      return `已从 ${from} 创建并切换到 ${created.branch}${created.upstream === null ? '' : `（跟踪 ${created.upstream}）`}`
+    })
+  }
 
   const doStage = (paths: string[], stage: boolean): Promise<unknown> =>
     call(stage ? 'stage' : 'unstage', sessionId, { repo: repoRef.current, files: paths })
@@ -444,29 +501,36 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
     { style: S.body },
     createElement(
       'div',
-      { style: { ...S.sectionHead, textTransform: 'none' } },
+      { style: { ...S.sectionHead, textTransform: 'none', flexWrap: 'wrap' } },
       createElement('input', {
+        ref: (element: unknown) => { branchInput.current = element },
         value: newBranch,
-        placeholder: '新分支名…',
+        placeholder: '新分支名…（回车即可创建）',
         style: { ...S.textarea, minHeight: 0, flex: 1, padding: '2px 6px' },
         onChange: (event: { target: { value: string } }) => setNewBranch(event.target.value),
-      }),
-      createElement(
-        'button',
-        {
-          style: S.button,
-          disabled: newBranch.trim() === '',
-          onClick: () => {
-            const name = newBranch.trim()
-            if (name === '') return
-            void run(`新建分支 ${name}`, async () => {
-              await call('branch-create', sessionId, { repo: repoRef.current, name })
-              setNewBranch('')
-              return `已创建并切换到 ${name}`
-            })
-          },
+        onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            createBranch()
+          }
         },
-        '新建',
+      }),
+      primaryButton('新建', newBranch.trim() === '' ? '请先在左侧输入新分支名' : null, createBranch, { focus: branchInput }),
+      createElement(
+        'select',
+        {
+          value: newBranchBase,
+          title: '新分支的来源：默认当前 HEAD，可选任一本地/远程分支',
+          style: { ...S.button, maxWidth: 180 },
+          onChange: (event: { target: { value: string } }) => setNewBranchBase(event.target.value),
+        },
+        createElement('option', { value: '' }, `来源：HEAD（${status?.branch ?? '当前'}${status?.detached === true ? '' : ''}）`),
+        ...branches.filter(branch => !branch.remote && !branch.current).map(branch =>
+          createElement('option', { key: `lb:${branch.name}`, value: branch.name }, branch.name),
+        ),
+        ...branches.filter(branch => branch.remote).map(branch =>
+          createElement('option', { key: `rb:${branch.name}`, value: branch.name }, branch.name),
+        ),
       ),
     ),
     ...branches.map(branch =>
@@ -526,6 +590,23 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
   )
 
   const smallInput = { ...S.textarea, minHeight: 0, flex: 1, padding: '2px 6px' } as const
+  const createWorktree = (): void => {
+    const name = worktreeName.trim()
+    if (name === '') {
+      setNotice({ kind: 'error', text: '请先输入工作树名' })
+      return
+    }
+    void run(`新建工作树 ${name}`, async () => {
+      const created = await call<{ path: string; branch: string; registered: boolean }>('worktree-add', sessionId, {
+        repo: repoRef.current,
+        name,
+        base: worktreeBase.trim(),
+      })
+      setWorktreeName('')
+      setWorktreeBase('')
+      return `工作树已建：${created.path}（分支 ${created.branch}${created.registered ? '，已注册为工作区，可新开会话直接使用' : ''}）`
+    })
+  }
   const worktreesView = createElement(
     'div',
     { style: S.body },
@@ -533,10 +614,17 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
       'div',
       { style: { ...S.sectionHead, textTransform: 'none', gap: 4 } },
       createElement('input', {
+        ref: (element: unknown) => { worktreeInput.current = element },
         value: worktreeName,
-        placeholder: '工作树名…',
+        placeholder: '工作树名…（回车即可创建）',
         style: smallInput,
         onChange: (event: { target: { value: string } }) => setWorktreeName(event.target.value),
+        onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            createWorktree()
+          }
+        },
       }),
       createElement('input', {
         value: worktreeBase,
@@ -544,11 +632,11 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
         style: smallInput,
         onChange: (event: { target: { value: string } }) => setWorktreeBase(event.target.value),
       }),
-      createElement(
+      primaryButton('新建', worktreeName.trim() === '' ? '请先输入工作树名' : null, createWorktree, { focus: worktreeInput }),
+      false ? createElement(
         'button',
         {
           style: S.button,
-          disabled: worktreeName.trim() === '',
           onClick: () => {
             const name = worktreeName.trim()
             if (name === '') return
@@ -565,7 +653,7 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
           },
         },
         '新建',
-      ),
+      ) : null,
       createElement(
         'button',
         {
@@ -727,19 +815,16 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
             }
           },
         }),
-        createElement(
-          'button',
-          {
-            style: { ...S.button, alignSelf: 'flex-end', color: (status?.staged.length ?? 0) > 0 ? TOKEN.text : TOKEN.dim },
-            disabled: message.trim() === '' || (status?.staged.length ?? 0) === 0,
-            onClick: () =>
-              void run('提交', async () => {
-                await call('commit', sessionId, { repo: repoRef.current, message })
-                setMessage('')
-                return '提交完成'
-              }),
-          },
+        primaryButton(
           `提交（${status?.staged.length ?? 0} 已暂存）`,
+          message.trim() === '' ? '请先填写提交信息' : (status?.staged.length ?? 0) === 0 ? '请先暂存要提交的改动' : null,
+          () =>
+            void run('提交', async () => {
+              await call('commit', sessionId, { repo: repoRef.current, message })
+              setMessage('')
+              return '提交完成'
+            }),
+          { style: { alignSelf: 'flex-end' } },
         ),
       )
       : null,
