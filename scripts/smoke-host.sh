@@ -42,7 +42,8 @@ call() {
 contains() { case "$1" in *"$2"*) echo 1 ;; *) echo 0 ;; esac; }
 
 # --- scratch repository -----------------------------------------------------
-rm -rf "$SCRATCH"
+REMOTE="${SCRATCH}-remote.git"
+rm -rf "$SCRATCH" "$REMOTE"
 mkdir -p "$SCRATCH"
 git -C "$SCRATCH" init -q
 git -C "$SCRATCH" -c user.email=smoke@test -c user.name=smoke commit -q --allow-empty -m "chore: init"
@@ -106,6 +107,23 @@ check "the directory is gone" "$([ ! -d "$WT_PATH" ] && echo 1 || echo 0)"
 PRUNED="$(call worktree-prune "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\"}")"
 check "worktree-prune succeeds" "$(contains "$PRUNED" '"ok":true')"
 
+# --- publishing a branch to a remote ---------------------------------------
+# A branch that exists only locally is the case the panel's 推送 used to fail
+# on: git refuses to push it without an upstream. A bare repository inside the
+# scratch directory stands in for the real remote.
+git init --bare -q "$REMOTE"
+git -C "$SCRATCH" remote add origin "$REMOTE"
+BRANCH="$(git -C "$SCRATCH" rev-parse --abbrev-ref HEAD)"
+
+NOPUB="$(call push "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\",\"confirm\":true}")"
+check "pushing a branch with no upstream reports no-upstream" "$(contains "$NOPUB" 'no-upstream')"
+check "the refusal explains how to fix it" "$(contains "$NOPUB" '发布分支')"
+
+PUBLISHED="$(call push "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\",\"confirm\":true,\"setUpstream\":true,\"branch\":\"$BRANCH\"}")"
+check "publish pushes with --set-upstream" "$(contains "$PUBLISHED" '"published":true')"
+check "the remote now has the branch" "$(git -C "$REMOTE" show-ref --verify --quiet "refs/heads/$BRANCH" && echo 1 || echo 0)"
+check "the branch now has an upstream" "$(contains "$(call status "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\"}")" '"upstream":"origin/')"
+
 # --- refusals ---------------------------------------------------------------
 check "an unknown session is refused" "$(contains "$(call status '{"sessionId":"session-nope"}')" 'unknown-session')"
 check "a path outside the workspace is refused" "$(contains "$(call status "{\"sessionId\":\"$SESSION\",\"repo\":\"/etc\"}")" 'outside-workspace')"
@@ -115,7 +133,7 @@ check "discard without confirm is refused" "$(contains "$(call discard "{\"sessi
 check "a GET is refused" "$([ "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/status")" = "405" ] && echo 1 || echo 0)"
 
 # --- cleanup ----------------------------------------------------------------
-rm -rf "$SCRATCH"
+rm -rf "$SCRATCH" "$REMOTE"
 echo
 echo "smoke-host: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

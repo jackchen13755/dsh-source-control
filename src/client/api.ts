@@ -102,6 +102,8 @@ export interface CallFields {
   staged?: boolean
   confirm?: boolean
   force?: boolean
+  /** push: record the tracking relationship (git --set-upstream) instead of pushing an existing upstream. */
+  setUpstream?: boolean
   limit?: number
   worktree?: string
 }

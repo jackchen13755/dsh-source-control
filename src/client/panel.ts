@@ -754,13 +754,35 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
       const result = await call<{ output: string }>('pull', sessionId, { repo: repoRef.current, remote, mode: 'merge' })
       return result.output === '' ? '已是最新' : result.output
     }) }, '拉取(合并)'),
-    createElement('button', { style: S.button, onClick: () => {
-      if (!window.confirm('推送当前分支到远程？')) return
-      void run('推送', async () => {
-        const result = await call<{ output: string }>('push', sessionId, { repo: repoRef.current, remote, confirm: true })
-        return result.output === '' ? '推送完成' : result.output
-      })
-    } }, '推送'),
+    primaryButton(
+      // A branch that exists only locally cannot be pushed by name; the honest
+      // label is "publish" (git's --set-upstream), which is what the click does.
+      status !== null && status.upstream === null ? '发布分支' : '推送',
+      null,
+      () => {
+        const target = remote === '' ? (context.remotes[0] ?? 'origin') : remote
+        const publishing = status !== null && status.upstream === null
+        const question = publishing
+          ? `当前分支「${status?.branch ?? ''}」在远端还不存在。\n将推送到 ${target} 并建立跟踪关系（git push --set-upstream）？`
+          : '推送当前分支到远程？'
+        if (!window.confirm(question)) return
+        void run(publishing ? '发布分支' : '推送', async () => {
+          const result = await call<{ output: string; published?: boolean }>('push', sessionId, {
+            repo: repoRef.current,
+            remote,
+            branch: status?.branch ?? '',
+            setUpstream: publishing,
+            confirm: true,
+          })
+          // Publishing prints only progress on stderr; lead with what happened
+          // and keep git's own lines after it (a GitLab remote appends the MR link).
+          if (publishing) {
+            return [`已发布 ${status?.branch ?? ''} 并建立跟踪关系`, result.output.trim()].filter(part => part !== '').join('\n')
+          }
+          return result.output.trim() === '' ? '推送完成' : result.output.trim()
+        })
+      },
+    ),
   )
 
   const tabList: Array<[View, string]> = [

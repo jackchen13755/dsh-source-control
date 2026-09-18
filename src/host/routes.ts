@@ -61,6 +61,7 @@ interface RequestBody {
   readonly force?: unknown
   readonly limit?: unknown
   readonly worktree?: unknown
+  readonly setUpstream?: unknown
 }
 
 /** A refused or failed operation. */
@@ -311,12 +312,32 @@ async function operate(ctx: Context, name: string, scoped: Scoped, options: Rout
     }
     case 'push': {
       if (body.confirm !== true) return fail('needs-confirm', 'pushing requires confirm: true')
-      const args = ['push']
-      if (remote !== '') args.push('--', remote)
       const branch = str(body.branch)
-      if (remote !== '' && branch !== '') args.push(branch)
+      const setUpstream = body.setUpstream === true
+      const args = ['push']
+      if (setUpstream) {
+        // Publishing: a branch that exists only locally has no remote-tracking
+        // ref to push to, so the push must name it and record the relationship
+        // in one step (this is git's own \`--set-upstream\`).
+        if (!(await validBranchName(repo, branch))) {
+          return fail('bad-branch', 'publishing a branch needs its local branch name')
+        }
+        const available = await gitApi.remotes(repo)
+        const target = remote === '' ? (available[0] ?? 'origin') : remote
+        args.push('--set-upstream', '--', target, branch)
+      } else {
+        if (remote !== '') args.push('--', remote)
+        if (remote !== '' && branch !== '') args.push(branch)
+      }
       const result = await gitApi.git(args, repo)
-      return result.code === 0 ? { ok: true, value: { output: result.stderr.trim() } } : fail('git-failed', 'push failed', result.stderr)
+      if (result.code === 0) return { ok: true, value: { output: result.stderr.trim(), published: setUpstream } }
+      const detail = `${result.stdout}${result.stderr}`.trim()
+      // The one failure every new branch hits: no upstream. Say what to do
+      // instead of relaying git's suggestion verbatim.
+      if (/has no upstream branch|--set-upstream/i.test(detail)) {
+        return fail('no-upstream', '当前分支在远端还没有上游分支', `${detail}\n\n点「发布分支」会以 --set-upstream 推送并在同一步建立跟踪关系。`)
+      }
+      return fail('git-failed', 'push failed', detail)
     }
     case 'worktree-list': {
       if (!(await gitApi.isRepository(repo))) return fail('not-a-repository', 'this directory is not a git repository')
