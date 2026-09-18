@@ -124,6 +124,25 @@ check "publish pushes with --set-upstream" "$(contains "$PUBLISHED" '"published"
 check "the remote now has the branch" "$(git -C "$REMOTE" show-ref --verify --quiet "refs/heads/$BRANCH" && echo 1 || echo 0)"
 check "the branch now has an upstream" "$(contains "$(call status "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\"}")" '"upstream":"origin/')"
 
+# --- checking out a branch that only exists on the remote --------------------
+# The panel offers this for remote rows; git's DWIM is spelled out as -c/--track.
+git -C "$SCRATCH" switch -q -c remote-only
+printf 'remote only\n' > "$SCRATCH/r.txt"
+git -C "$SCRATCH" add r.txt
+git -C "$SCRATCH" -c user.email=smoke@test -c user.name=smoke commit -q -m "test: remote only"
+git -C "$SCRATCH" push -q origin remote-only
+git -C "$SCRATCH" switch -q "$BRANCH"
+git -C "$SCRATCH" branch -q -D remote-only
+git -C "$SCRATCH" fetch -q origin
+
+TRACKED="$(call switch "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\",\"branch\":\"origin/remote-only\",\"track\":true}")"
+check "checkout of a remote-only branch succeeds" "$(contains "$TRACKED" '"ok":true')"
+check "it creates the local branch" "$(git -C "$SCRATCH" show-ref --verify --quiet refs/heads/remote-only && echo 1 || echo 0)"
+check "the new branch tracks the remote" "$(contains "$(git -C "$SCRATCH" rev-parse --abbrev-ref 'remote-only@{u}' 2>/dev/null)" 'origin/remote-only')"
+check "the working tree switched to it" "$(contains "$(git -C "$SCRATCH" rev-parse --abbrev-ref HEAD)" 'remote-only')"
+SWITCHED_BACK="$(call switch "{\"sessionId\":\"$SESSION\",\"repo\":\"$SCRATCH\",\"branch\":\"$BRANCH\"}")"
+check "switching back to a local branch works" "$(contains "$SWITCHED_BACK" '"ok":true')"
+
 # --- refusals ---------------------------------------------------------------
 check "an unknown session is refused" "$(contains "$(call status '{"sessionId":"session-nope"}')" 'unknown-session')"
 check "a path outside the workspace is refused" "$(contains "$(call status "{\"sessionId\":\"$SESSION\",\"repo\":\"/etc\"}")" 'outside-workspace')"

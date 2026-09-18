@@ -207,6 +207,7 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
   const [message, setMessage] = useState('')
   const [newBranch, setNewBranch] = useState('')
   const [newBranchBase, setNewBranchBase] = useState('')
+  const [branchFilter, setBranchFilter] = useState('')
   const branchInput = useRef<unknown>(null)
   const worktreeInput = useRef<unknown>(null)
   const [worktreeName, setWorktreeName] = useState('')
@@ -362,6 +363,21 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
     })
   }
 
+  /** One entry point for "make this branch current", local or remote-only. */
+  const switchTo = (branch: BranchInfo): void => {
+    const remote = branch.remote
+    void run(remote ? `检出 ${branch.name}` : `切换 ${branch.name}`, async () => {
+      const result = await call<{ branch: string; tracking?: string }>('switch', sessionId, {
+        repo: repoRef.current,
+        branch: branch.name,
+        track: remote,
+      })
+      return remote && result.tracking !== undefined
+        ? `已检出 ${result.branch}（跟踪 ${result.tracking}）`
+        : `已切换到 ${result.branch}`
+    })
+  }
+
   const doStage = (paths: string[], stage: boolean): Promise<unknown> =>
     call(stage ? 'stage' : 'unstage', sessionId, { repo: repoRef.current, files: paths })
 
@@ -496,6 +512,14 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
       : null,
   )
 
+  // Keyword filter over branch name and the branch tip's subject (the same two
+  // things a person remembers about a branch).
+  const normalizedFilter = branchFilter.trim().toLowerCase()
+  const visibleBranches = normalizedFilter === ''
+    ? branches
+    : branches.filter(branch =>
+      branch.name.toLowerCase().includes(normalizedFilter) || branch.subject.toLowerCase().includes(normalizedFilter))
+
   const branchesView = createElement(
     'div',
     { style: S.body },
@@ -533,7 +557,41 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
         ),
       ),
     ),
-    ...branches.map(branch =>
+    createElement(
+      'div',
+      { style: { ...S.sectionHead, textTransform: 'none', gap: 4 } },
+      createElement('input', {
+        value: branchFilter,
+        placeholder: '搜索分支…（名称或提交信息，回车切到第一条）',
+        'aria-label': '搜索分支',
+        style: { ...S.textarea, minHeight: 0, flex: 1, padding: '2px 6px' },
+        onChange: (event: { target: { value: string } }) => setBranchFilter(event.target.value),
+        onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+          if (event.key === 'Escape') {
+            setBranchFilter('')
+            return
+          }
+          if (event.key === 'Enter' && visibleBranches.length > 0) {
+            event.preventDefault()
+            switchTo(visibleBranches[0] as BranchInfo)
+          }
+        },
+      }),
+      branchFilter.trim() === ''
+        ? createElement('span', { style: { ...S.dim, fontSize: 11, whiteSpace: 'nowrap' } }, `${branches.length} 个`)
+        : createElement('span', { style: { ...S.dim, fontSize: 11, whiteSpace: 'nowrap' } }, `${visibleBranches.length}/${branches.length}`),
+      branchFilter.trim() === ''
+        ? null
+        : createElement('button', { style: S.iconButton, title: '清除搜索', onClick: () => setBranchFilter('') }, '✕'),
+    ),
+    visibleBranches.length === 0
+      ? createElement(
+        'div',
+        { style: S.empty },
+        branches.length === 0 ? '这个仓库还没有任何分支。' : `没有匹配「${branchFilter.trim()}」的分支。`,
+      )
+      : null,
+    ...visibleBranches.map(branch =>
       createElement(
         'div',
         { key: `${branch.remote ? 'r' : 'l'}:${branch.name}`, style: S.row, title: branch.subject },
@@ -544,16 +602,20 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
           ? null
           : createElement(
             'button',
-            {
-              style: S.iconButton,
-              title: `切换到 ${branch.name}`,
-              onClick: () => void run(`切换 ${branch.name}`, async () => {
-                await call('switch', sessionId, { repo: repoRef.current, branch: branch.name })
-                return `已切换到 ${branch.name}`
-              }),
-            },
+            { style: S.iconButton, title: `切换到 ${branch.name}`, onClick: () => switchTo(branch) },
             '切换',
           ),
+        branch.remote
+          ? createElement(
+            'button',
+            {
+              style: S.iconButton,
+              title: `检出 ${branch.name} 为本地分支并跟踪它`,
+              onClick: () => switchTo(branch),
+            },
+            '检出',
+          )
+          : null,
         branch.current || branch.remote
           ? null
           : createElement(

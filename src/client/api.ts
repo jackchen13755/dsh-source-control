@@ -104,6 +104,8 @@ export interface CallFields {
   force?: boolean
   /** push: record the tracking relationship (git --set-upstream) instead of pushing an existing upstream. */
   setUpstream?: boolean
+  /** switch: the target exists only on a remote — create the local branch that tracks it. */
+  track?: boolean
   limit?: number
   worktree?: string
 }
