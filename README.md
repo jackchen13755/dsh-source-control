@@ -44,9 +44,9 @@
 
 ```sh
 # 从 GitHub 装
-dsh plugin --profile web add github:<you>/dsh-source-control
+dsh plugin --profile web add github:jackchen13755/dsh-source-control
 
-# 从本地源码装（开发用）
+# 从本地源码装（开发用，热改即生效）
 dsh plugin --profile web add link:/path/to/dsh-source-control
 ```
 
