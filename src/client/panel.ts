@@ -208,6 +208,9 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
   const [newBranch, setNewBranch] = useState('')
   const [newBranchBase, setNewBranchBase] = useState('')
   const [branchFilter, setBranchFilter] = useState('')
+  // Which branch row the pointer is on, so the row and its per-branch buttons read
+  // as one target (keyed, not a boolean: the filter can reorder the list).
+  const [hoveredBranch, setHoveredBranch] = useState('')
   const branchInput = useRef<unknown>(null)
   const worktreeInput = useRef<unknown>(null)
   const [worktreeName, setWorktreeName] = useState('')
@@ -591,10 +594,17 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
         branches.length === 0 ? '这个仓库还没有任何分支。' : `没有匹配「${branchFilter.trim()}」的分支。`,
       )
       : null,
-    ...visibleBranches.map(branch =>
-      createElement(
+    ...visibleBranches.map(branch => {
+      const branchKey = `${branch.remote ? 'r' : 'l'}:${branch.name}`
+      return createElement(
         'div',
-        { key: `${branch.remote ? 'r' : 'l'}:${branch.name}`, style: S.row, title: branch.subject },
+        {
+          key: branchKey,
+          style: hoveredBranch === branchKey ? { ...S.row, background: TOKEN.hover } : S.row,
+          title: branch.subject,
+          onMouseEnter: () => setHoveredBranch(branchKey),
+          onMouseLeave: () => setHoveredBranch(current => (current === branchKey ? '' : current)),
+        },
         createElement('span', { style: { ...S.badge, color: branch.current ? TOKEN.ok : TOKEN.dim } }, branch.current ? '●' : branch.remote ? '☁' : '○'),
         createElement('span', { style: S.path }, branch.name),
         createElement('span', { style: { ...S.dim, fontSize: 11 } }, branch.shortHash),
@@ -647,8 +657,8 @@ export function ScmPanel(props: ScmPanelProps): ReactNode {
             },
             '删除',
           ),
-      ),
-    ),
+      )
+    }),
   )
 
   const smallInput = { ...S.textarea, minHeight: 0, flex: 1, padding: '2px 6px' } as const
