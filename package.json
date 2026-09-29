@@ -1,6 +1,6 @@
 {
   "name": "dsh-source-control",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "VS Code 式源代码管理面板（DSH 原生右侧栏标签）：Git 改动、暂存、提交、diff、分支切换与合并、拉取推送、冲突解决",
   "type": "module",
   "private": false,
@@ -48,10 +48,6 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0-rc <5",
-    "@deepseek-ai/dsh-client-ui-sidebar-right": ">=0.1.5-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.5-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.1.5-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-session": ">=0.1.5-rc.1 <0.2.0-0",
     "react": "^18.2.0"
   },
   "devDependencies": {
